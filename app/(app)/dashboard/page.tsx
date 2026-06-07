@@ -81,7 +81,7 @@ async function getDashboardData(userId: string) {
   // Build category breakdown
   const catMap = new Map<string, { name: string; color: string; total: number; count: number }>();
   for (const row of categoryBreakdownRes.data || []) {
-    const cat = row.categories as { name: string; color: string; icon: string } | null;
+  const cat = (row.categories as any) as { name: string; color: string; icon: string } | null;
     if (!cat || !row.category_id) continue;
     const existing = catMap.get(row.category_id);
     if (existing) {
