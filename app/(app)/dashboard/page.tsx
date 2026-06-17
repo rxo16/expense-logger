@@ -3,6 +3,26 @@ import { redirect } from "next/navigation";
 import { DashboardClient } from "./DashboardClient";
 import { format, startOfMonth, endOfMonth, subMonths, startOfDay } from "date-fns";
 
+export type RawExpense = {
+  amount: number;
+  expense_date: string;
+  category_id: string;
+  categories: { name: string; color: string; icon: string }[];
+};
+
+export type MonthTrend = {
+  year: number;
+  month: number;
+  label: string;
+  total: number;
+};
+
+export type RecentExpense = {
+  [key: string]: any;
+  categories: { name: string; color: string; icon: string }[];
+  subcategories: { name: string }[] | null;
+};
+
 async function getDashboardData(userId: string) {
   const supabase = await createClient();
   const now = new Date();
@@ -13,7 +33,6 @@ async function getDashboardData(userId: string) {
   const lastEnd = format(endOfMonth(subMonths(now, 1)), "yyyy-MM-dd");
   const todayStr = format(startOfDay(now), "yyyy-MM-dd");
 
-  // Run all queries in parallel
   const [
     currentMonthRes,
     lastMonthRes,
@@ -22,7 +41,6 @@ async function getDashboardData(userId: string) {
     trendRes,
     recentRes,
   ] = await Promise.all([
-    // Current month total
     supabase
       .from("expenses")
       .select("amount")
@@ -30,7 +48,6 @@ async function getDashboardData(userId: string) {
       .gte("expense_date", currStart)
       .lte("expense_date", currEnd),
 
-    // Last month total
     supabase
       .from("expenses")
       .select("amount")
@@ -38,14 +55,12 @@ async function getDashboardData(userId: string) {
       .gte("expense_date", lastStart)
       .lte("expense_date", lastEnd),
 
-    // Today total
     supabase
       .from("expenses")
       .select("amount")
       .eq("user_id", userId)
       .eq("expense_date", todayStr),
 
-    // Category breakdown for current month
     supabase
       .from("expenses")
       .select("amount, category_id, categories(name, color, icon)")
@@ -53,7 +68,6 @@ async function getDashboardData(userId: string) {
       .gte("expense_date", currStart)
       .lte("expense_date", currEnd),
 
-    // 6-month trend
     supabase
       .from("expenses")
       .select("amount, expense_date")
@@ -61,7 +75,6 @@ async function getDashboardData(userId: string) {
       .gte("expense_date", format(startOfMonth(subMonths(now, 5)), "yyyy-MM-dd"))
       .lte("expense_date", currEnd),
 
-    // Recent 10 expenses
     supabase
       .from("expenses")
       .select("*, categories(name, color, icon), subcategories(name)")
@@ -78,10 +91,10 @@ async function getDashboardData(userId: string) {
   const lastTotal = sum(lastMonthRes.data || []);
   const todayTotal = sum(todayRes.data || []);
 
-  // Build category breakdown
   const catMap = new Map<string, { name: string; color: string; total: number; count: number }>();
   for (const row of categoryBreakdownRes.data || []) {
-  const cat = (row.categories as any) as { name: string; color: string; icon: string } | null;
+    const rawCat = row.categories;
+    const cat = (Array.isArray(rawCat) ? rawCat[0] : rawCat) as { name: string; color: string; icon: string } | null;
     if (!cat || !row.category_id) continue;
     const existing = catMap.get(row.category_id);
     if (existing) {
@@ -91,6 +104,7 @@ async function getDashboardData(userId: string) {
       catMap.set(row.category_id, { name: cat.name, color: cat.color, total: row.amount, count: 1 });
     }
   }
+
   const topCategories = Array.from(catMap.entries())
     .map(([id, v]) => ({
       category_id: id,
@@ -103,13 +117,13 @@ async function getDashboardData(userId: string) {
     .sort((a, b) => b.total - a.total)
     .slice(0, 5);
 
-  // Build 6-month trend
   const trendMap = new Map<string, number>();
   for (const row of trendRes.data || []) {
-    const key = row.expense_date.slice(0, 7); // YYYY-MM
+    const key = row.expense_date.slice(0, 7);
     trendMap.set(key, (trendMap.get(key) || 0) + row.amount);
   }
-  const monthlyTrend = Array.from({ length: 6 }, (_, i) => {
+
+  const monthlyTrend: MonthTrend[] = Array.from({ length: 6 }, (_, i) => {
     const d = subMonths(now, 5 - i);
     const key = format(d, "yyyy-MM");
     return {
@@ -127,7 +141,7 @@ async function getDashboardData(userId: string) {
     current_month_count: currentMonthRes.data?.length || 0,
     top_categories: topCategories,
     monthly_trend: monthlyTrend,
-    recent_expenses: recentRes.data || [],
+    recent_expenses: (recentRes.data || []) as RecentExpense[],
   };
 }
 
