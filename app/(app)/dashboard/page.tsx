@@ -18,9 +18,12 @@ export type MonthTrend = {
 };
 
 export type RecentExpense = {
-  [key: string]: any;
-  categories: { name: string; color: string; icon: string }[];
-  subcategories: { name: string }[] | null;
+  id: string;
+  amount: number;
+  description: string;
+  expense_date: string;
+  categories?: { name: string; color: string } | null;
+  subcategories?: { name: string } | null;
 };
 
 async function getDashboardData(userId: string) {
@@ -141,7 +144,18 @@ async function getDashboardData(userId: string) {
     current_month_count: currentMonthRes.data?.length || 0,
     top_categories: topCategories,
     monthly_trend: monthlyTrend,
-    recent_expenses: (recentRes.data || []) as RecentExpense[],
+    recent_expenses: (recentRes.data || []).map((row): RecentExpense => {
+      const rawCat = row.categories;
+      const rawSub = row.subcategories;
+      return {
+        id: row.id,
+        amount: row.amount,
+        description: row.description,
+        expense_date: row.expense_date,
+        categories: Array.isArray(rawCat) ? (rawCat[0] ?? null) : rawCat ?? null,
+        subcategories: Array.isArray(rawSub) ? (rawSub[0] ?? null) : rawSub ?? null,
+      };
+    }),
   };
 }
 
