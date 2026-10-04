@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { DashboardClient } from "./DashboardClient";
-import { format, startOfMonth, endOfMonth, subMonths, startOfDay } from "date-fns";
+import { format, startOfMonth, subMonths, startOfDay } from "date-fns";
 
 async function getDashboardData(userId: string) {
   const supabase = await createClient();
@@ -25,37 +25,68 @@ async function getDashboardData(userId: string) {
       .order("created_at", { ascending: false })
       .limit(10),
 
-    // Outstanding loan summary
     supabase
       .from("loans")
-      .select("principal, amount_paid, status, lenders(name)")
+      .select("principal, amount_paid, status")
       .eq("user_id", userId)
       .eq("status", "active"),
   ]);
 
   const trendMap = new Map<string, number>();
   for (const row of allExpensesRes.data || []) {
-    const key = row.expense_date.slice(0, 7);
-    trendMap.set(key, (trendMap.get(key) || 0) + row.amount);
+    const key = (row.expense_date as string).slice(0, 7);
+    trendMap.set(key, (trendMap.get(key) || 0) + (row.amount as number));
   }
+
   const monthlyTrend = Array.from({ length: 6 }, (_, i) => {
     const d = subMonths(now, 5 - i);
     const key = format(d, "yyyy-MM");
     return {
-      year: d.getFullYear(), month: d.getMonth() + 1,
-      label: format(d, "MMM"), monthKey: key,
+      year: d.getFullYear(),
+      month: d.getMonth() + 1,
+      label: format(d, "MMM"),
+      monthKey: key,
       total: Math.round(trendMap.get(key) || 0),
     };
   });
 
+  // Normalize all_expenses so categories is always object | null, never array
+  const allExpenses = (allExpensesRes.data || []).map((row) => {
+    const cat = Array.isArray(row.categories)
+      ? (row.categories[0] ?? null)
+      : (row.categories ?? null);
+    return {
+      amount: row.amount as number,
+      expense_date: row.expense_date as string,
+      category_id: row.category_id as string,
+      categories: cat as { name: string; color: string; icon: string } | null,
+    };
+  });
+
+  // Normalize recent_expenses the same way
+  const recentExpenses = (recentRes.data || []).map((row) => {
+    const cat = Array.isArray(row.categories)
+      ? (row.categories[0] ?? null)
+      : (row.categories ?? null);
+    const sub = Array.isArray(row.subcategories)
+      ? (row.subcategories[0] ?? null)
+      : (row.subcategories ?? null);
+    return {
+      ...row,
+      categories: cat as { name: string; color: string } | null,
+      subcategories: sub as { name: string } | null,
+    };
+  });
+
   const totalOutstanding = (loansRes.data || []).reduce(
-    (s, l) => s + (l.principal - l.amount_paid), 0
+    (s, l) => s + ((l.principal as number) - (l.amount_paid as number)),
+    0
   );
 
   return {
-    all_expenses: allExpensesRes.data || [],
+    all_expenses: allExpenses,
     monthly_trend: monthlyTrend,
-    recent_expenses: recentRes.data || [],
+    recent_expenses: recentExpenses,
     today_str: todayStr,
     total_outstanding_loans: Math.round(totalOutstanding),
     active_loan_count: loansRes.data?.length || 0,
