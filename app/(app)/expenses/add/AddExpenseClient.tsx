@@ -3,8 +3,8 @@
 import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { expenseSchema, INCURRED_FOR_PRESETS } from "@/lib/validations";
+
+import { INCURRED_FOR_PRESETS } from "@/lib/validations";
 import { createClient } from "@/lib/supabase/client";
 import { format } from "date-fns";
 import {
@@ -44,14 +44,25 @@ export function AddExpenseClient({ categories, lenders }: Props) {
 
   const selectedCategory = categories.find((c) => c.id === selectedCategoryId);
 
+  type PaymentMode = "upi" | "card" | "cash" | "bank_transfer" | "other";
+  type FormValues = {
+    amount: number;
+    description: string;
+    notes: string;
+    category_id: string;
+    subcategory_id: string;
+    payment_mode: PaymentMode;
+    expense_date: string;
+    incurred_for: string;
+  };
+
   const { register, handleSubmit, setValue, watch, formState: { errors } } =
-    useForm({
-      resolver: zodResolver(expenseSchema),
+    useForm<FormValues>({
       defaultValues: {
         amount: 0, description: "", notes: "",
         category_id: categories[0]?.id || "",
         subcategory_id: "",
-        payment_mode: "upi" as const,
+        payment_mode: "upi",
         expense_date: format(new Date(), "yyyy-MM-dd"),
         incurred_for: "self",
       },
@@ -71,7 +82,7 @@ export function AddExpenseClient({ categories, lenders }: Props) {
     }
   }
 
-  async function onSubmit(values: any) {
+  async function onSubmit(values: FormValues) {
     setSaving(true);
     try {
       const supabase = createClient();
