@@ -72,7 +72,8 @@ function EditForm({ expense, categories, lenders, onSave, onCancel }: {
   const [notes, setNotes] = useState(expense.notes || "");
   const [categoryId, setCategoryId] = useState(expense.category_id);
   const [subcategoryId, setSubcategoryId] = useState(expense.subcategory_id || "");
-  const [paymentMode, setPaymentMode] = useState(expense.payment_mode);
+  type PM = "upi" | "card" | "cash" | "bank_transfer" | "other";
+  const [paymentMode, setPaymentMode] = useState<PM>((expense.payment_mode as PM) || "upi");
   const [incurredFor, setIncurredFor] = useState(expense.incurred_for || "self");
   const [isLoan, setIsLoan] = useState(expense.is_loan || false);
   const [lenderId, setLenderId] = useState(expense.lender_id || lenders.find(l => l.is_default)?.id || "");
