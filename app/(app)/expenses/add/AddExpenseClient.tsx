@@ -194,10 +194,10 @@ export function AddExpenseClient({ categories, lenders }: Props) {
               <button
                 type="button"
                 onClick={() => setIsLoan(!isLoan)}
-                className={cn("w-11 h-6 rounded-full relative transition-colors flex-shrink-0", isLoan ? "bg-[var(--brand)]" : "bg-muted")}
+                className={cn("w-11 h-6 rounded-full transition-colors flex-shrink-0 flex items-center px-0.5", isLoan ? "bg-[var(--brand)]" : "bg-muted")}
                 role="switch" aria-checked={isLoan}
               >
-                <span className={cn("absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform", isLoan ? "translate-x-5" : "translate-x-0.5")} />
+                <span className={cn("w-5 h-5 bg-white rounded-full shadow-sm transition-transform duration-200 flex-shrink-0", isLoan ? "translate-x-5" : "translate-x-0")} />
               </button>
             </div>
 
