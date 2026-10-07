@@ -74,6 +74,8 @@ function AddLoanModal({ lenders, userId, onAdded, onClose }: {
 }) {
   const defaultLender = lenders.find(l => l.is_default) || lenders[0];
   const [lenderId, setLenderId] = useState(defaultLender?.id || "");
+  // If no lenders passed, nothing to show
+  const hasLenders = lenders.length > 0;
   const [amount, setAmount] = useState("");
   const [emi, setEmi] = useState("");
   const [date, setDate] = useState(format(new Date(), "yyyy-MM-dd"));
@@ -104,16 +106,20 @@ function AddLoanModal({ lenders, userId, onAdded, onClose }: {
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-end justify-center">
-      <div className="bg-card w-full max-w-lg rounded-t-3xl p-5 space-y-4 max-h-[90vh] overflow-y-auto">
+      <div className="bg-card w-full max-w-lg rounded-t-3xl p-5 pb-8 space-y-4 max-h-[85vh] overflow-y-auto" style={{paddingBottom: "max(2rem, env(safe-area-inset-bottom))"}}>
         <div className="flex items-center justify-between">
           <h2 className="text-base font-semibold text-foreground">Add Manual Loan</h2>
           <button onClick={onClose}><X size={18} className="text-muted-foreground" /></button>
         </div>
         <div>
           <label className="text-xs font-medium text-muted-foreground block mb-1.5">Lender</label>
-          <select value={lenderId} onChange={e => setLenderId(e.target.value)} className={inputCls}>
-            {lenders.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
-          </select>
+          {hasLenders ? (
+            <select value={lenderId} onChange={e => setLenderId(e.target.value)} className={inputCls}>
+              {lenders.map(l => <option key={l.id} value={l.id}>{l.name} {l.is_default ? "(default)" : ""}</option>)}
+            </select>
+          ) : (
+            <p className="text-xs text-destructive">No lenders found. Add a lender first from the Loans tab.</p>
+          )}
         </div>
         <div>
           <label className="text-xs font-medium text-muted-foreground block mb-1.5">Loan Amount (₹)</label>
@@ -202,7 +208,7 @@ function EmiSettleModal({ lender, targetedLoans, ratePerMonth, userId, onSettled
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-end justify-center">
-      <div className="bg-card w-full max-w-lg rounded-t-3xl p-5 space-y-4 max-h-[90vh] overflow-y-auto">
+      <div className="bg-card w-full max-w-lg rounded-t-3xl p-5 pb-8 space-y-4 max-h-[85vh] overflow-y-auto" style={{paddingBottom: "max(2rem, env(safe-area-inset-bottom))"}}>
         <div className="flex items-center justify-between">
           <h2 className="text-base font-semibold text-foreground">EMI Settlement — {lender.name}</h2>
           <button onClick={onClose}><X size={18} className="text-muted-foreground" /></button>
@@ -258,35 +264,50 @@ function LumpSumModal({ loan, userId, onSettled, onClose }: {
   onSettled: (updatedLoan: Loan, s: Settlement) => void; onClose: () => void;
 }) {
   const balance = loanBalance(loan);
+  const [amount, setAmount] = useState(String(Math.round(balance)));
   const [date, setDate] = useState(format(new Date(), "yyyy-MM-dd"));
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
   const inputCls = "w-full bg-secondary rounded-xl px-3 py-2.5 text-sm text-foreground outline-none border border-transparent focus:border-[var(--brand)] transition-colors";
 
   async function handleSettle() {
+    const num = parseFloat(amount);
+    if (!num || num <= 0) { setError("Enter a valid amount"); return; }
+    if (num > balance + 0.01) { setError("Amount cannot exceed outstanding balance " + formatCurrency(balance)); return; }
     setSaving(true);
     const supabase = createClient();
+    const newPaid = loan.amount_paid + num;
+    const newStatus = newPaid >= loan.principal ? "settled" : "active";
     const { data: settlement, error: sErr } = await supabase.from("settlements")
-      .insert({ user_id: userId, lender_id: loan.lender_id, settlement_date: date, total_amount: balance, notes: notes.trim() || null })
+      .insert({ user_id: userId, lender_id: loan.lender_id, settlement_date: date, total_amount: num, notes: notes.trim() || null })
       .select().single();
-    if (sErr) { setSaving(false); return; }
-    await supabase.from("settlement_allocations").insert({ settlement_id: settlement.id, loan_id: loan.id, amount_applied: balance });
-    await supabase.from("loans").update({ amount_paid: loan.principal, status: "settled" }).eq("id", loan.id);
-    const updatedLoan = { ...loan, amount_paid: loan.principal, status: "settled" };
+    if (sErr) { setError(sErr.message); setSaving(false); return; }
+    await supabase.from("settlement_allocations").insert({ settlement_id: settlement.id, loan_id: loan.id, amount_applied: num });
+    await supabase.from("loans").update({ amount_paid: newPaid, status: newStatus }).eq("id", loan.id);
+    const updatedLoan = { ...loan, amount_paid: newPaid, status: newStatus };
     onSettled(updatedLoan, { ...settlement, lenders: loan.lenders });
     onClose();
   }
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-end justify-center">
-      <div className="bg-card w-full max-w-lg rounded-t-3xl p-5 space-y-4">
+      <div className="bg-card w-full max-w-lg rounded-t-3xl p-5 pb-8 space-y-4" style={{paddingBottom: "max(2rem, env(safe-area-inset-bottom))"}}>
         <div className="flex items-center justify-between">
           <h2 className="text-base font-semibold text-foreground">Settle in Full</h2>
           <button onClick={onClose}><X size={18} className="text-muted-foreground" /></button>
         </div>
         <div className="bg-[var(--brand-light)] rounded-xl px-4 py-3">
-          <p className="text-xs text-[var(--brand-dark)]">{loan.loan_number} · Full outstanding</p>
+          <p className="text-xs text-[var(--brand-dark)]">{loan.loan_number} · Outstanding balance</p>
           <p className="text-xl font-bold text-[var(--brand)]">{formatCurrency(balance)}</p>
+        </div>
+        <div>
+          <label className="text-xs font-medium text-muted-foreground block mb-1.5">Payment Amount (₹)</label>
+          <input type="number" value={amount} onChange={e => setAmount(e.target.value)} className={inputCls} />
+          <div className="flex gap-2 mt-1.5">
+            <button onClick={() => setAmount(String(Math.round(balance)))}
+              className="text-xs text-[var(--brand)] font-medium">Pay full {formatCurrency(balance)}</button>
+          </div>
         </div>
         <div>
           <label className="text-xs font-medium text-muted-foreground block mb-1.5">Settlement Date</label>
@@ -296,11 +317,12 @@ function LumpSumModal({ loan, userId, onSettled, onClose }: {
           <label className="text-xs font-medium text-muted-foreground block mb-1.5">Notes</label>
           <input value={notes} onChange={e => setNotes(e.target.value)} placeholder="UPI ref, bank transfer…" className={inputCls} />
         </div>
+        {error && <p className="text-xs text-destructive">{error}</p>}
         <div className="flex gap-3">
           <button onClick={onClose} className="flex-1 py-3 rounded-2xl bg-secondary border border-border text-sm font-medium">Cancel</button>
           <button onClick={handleSettle} disabled={saving}
             className="flex-1 py-3 rounded-2xl bg-[var(--brand)] text-white text-sm font-semibold disabled:opacity-60">
-            {saving ? "Settling…" : `Settle ${formatCurrency(balance)}`}
+            {saving ? "Settling…" : `Pay ${formatCurrency(parseFloat(amount) || 0)}`}
           </button>
         </div>
       </div>
@@ -561,12 +583,12 @@ export function LoansClient({ lenders: initialLenders, loans: initialLoans, sett
                                       <Target size={13} />
                                     </button>
                                   )}
-                                  {/* Lump sum settle for standalone active loans */}
-                                  {loan.status === "active" && isStandalone && (
+                                  {/* Lump sum settle — available on ALL active loans */}
+                                  {loan.status === "active" && (
                                     <button
                                       onClick={() => setLumpSumLoanId(loan.id)}
                                       className="flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 bg-[var(--brand)] text-white rounded-lg">
-                                      <Zap size={11} /> Settle
+                                      <Zap size={11} /> {isStandalone ? "Settle" : "Pay"}
                                     </button>
                                   )}
                                   <div className="text-right">
