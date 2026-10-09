@@ -67,6 +67,70 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: () => void 
   );
 }
 
+// ── Shared bottom-sheet modal ─────────────────────────────────────────────────
+// - z-[60] so it sits above the fixed BottomNav (z-50)
+// - tracks window.visualViewport so it reflows when the Android keyboard opens
+// - header + footer are pinned; only the form body scrolls, so buttons stay reachable
+function useVisualViewportBox() {
+  const [box, setBox] = useState<{ top: number; height: number } | null>(null);
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const update = () => setBox({ top: vv.offsetTop, height: vv.height });
+    update();
+    vv.addEventListener("resize", update);
+    vv.addEventListener("scroll", update);
+    return () => {
+      vv.removeEventListener("resize", update);
+      vv.removeEventListener("scroll", update);
+    };
+  }, []);
+  return box;
+}
+
+function SheetModal({ title, onClose, footer, children }: {
+  title: React.ReactNode; onClose: () => void;
+  footer: React.ReactNode; children: React.ReactNode;
+}) {
+  const box = useVisualViewportBox();
+
+  // Lock background scroll while the sheet is open
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, []);
+
+  // Keep the focused field visible after the keyboard animation settles
+  function handleFocus(e: React.FocusEvent<HTMLDivElement>) {
+    const el = e.target as HTMLElement;
+    if (!["INPUT", "SELECT", "TEXTAREA"].includes(el.tagName)) return;
+    setTimeout(() => el.scrollIntoView({ block: "center", behavior: "smooth" }), 300);
+  }
+
+  return (
+    <div
+      className="fixed left-0 right-0 z-[60] bg-black/50 flex items-end justify-center"
+      style={box ? { top: box.top, height: box.height } : { top: 0, bottom: 0 }}
+    >
+      <div role="dialog" aria-modal="true"
+        className="bg-card w-full max-w-lg rounded-t-3xl flex flex-col max-h-[92%]">
+        <div className="flex items-center justify-between px-5 pt-5 pb-3 flex-shrink-0">
+          <h2 className="text-base font-semibold text-foreground">{title}</h2>
+          <button onClick={onClose} aria-label="Close"><X size={18} className="text-muted-foreground" /></button>
+        </div>
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-3 space-y-4" onFocus={handleFocus}>
+          {children}
+        </div>
+        <div className="flex-shrink-0 px-5 pt-3 border-t border-border"
+          style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}>
+          {footer}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Add Loan modal ────────────────────────────────────────────────────────────
 function AddLoanModal({ lenders, userId, onAdded, onClose }: {
   lenders: Lender[]; userId: string;
@@ -105,12 +169,15 @@ function AddLoanModal({ lenders, userId, onAdded, onClose }: {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-end justify-center">
-      <div className="bg-card w-full max-w-lg rounded-t-3xl p-5 pb-8 space-y-4 max-h-[85vh] overflow-y-auto" style={{paddingBottom: "max(2rem, env(safe-area-inset-bottom))"}}>
-        <div className="flex items-center justify-between">
-          <h2 className="text-base font-semibold text-foreground">Add Manual Loan</h2>
-          <button onClick={onClose}><X size={18} className="text-muted-foreground" /></button>
+    <SheetModal title={<>Add Manual Loan</>} onClose={onClose}
+      footer={
+        <div className="flex gap-3">
+          <button onClick={onClose} className="flex-1 py-3 rounded-2xl bg-secondary border border-border text-sm font-medium text-foreground">Cancel</button>
+          <button onClick={handleSave} disabled={saving} className="flex-1 py-3 rounded-2xl bg-[var(--brand)] text-white text-sm font-semibold disabled:opacity-60">
+            {saving ? "Saving…" : "Add Loan"}
+          </button>
         </div>
+      }>
         <div>
           <label className="text-xs font-medium text-muted-foreground block mb-1.5">Lender</label>
           {hasLenders ? (
@@ -138,14 +205,7 @@ function AddLoanModal({ lenders, userId, onAdded, onClose }: {
           <input value={notes} onChange={e => setNotes(e.target.value)} placeholder="What was this loan for?" className={inputCls} />
         </div>
         {error && <p className="text-xs text-destructive">{error}</p>}
-        <div className="flex gap-3">
-          <button onClick={onClose} className="flex-1 py-3 rounded-2xl bg-secondary border border-border text-sm font-medium text-foreground">Cancel</button>
-          <button onClick={handleSave} disabled={saving} className="flex-1 py-3 rounded-2xl bg-[var(--brand)] text-white text-sm font-semibold disabled:opacity-60">
-            {saving ? "Saving…" : "Add Loan"}
-          </button>
-        </div>
-      </div>
-    </div>
+    </SheetModal>
   );
 }
 
@@ -207,12 +267,16 @@ function EmiSettleModal({ lender, targetedLoans, ratePerMonth, userId, onSettled
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-end justify-center">
-      <div className="bg-card w-full max-w-lg rounded-t-3xl p-5 pb-8 space-y-4 max-h-[85vh] overflow-y-auto" style={{paddingBottom: "max(2rem, env(safe-area-inset-bottom))"}}>
-        <div className="flex items-center justify-between">
-          <h2 className="text-base font-semibold text-foreground">EMI Settlement — {lender.name}</h2>
-          <button onClick={onClose}><X size={18} className="text-muted-foreground" /></button>
+    <SheetModal title={<>EMI Settlement — {lender.name}</>} onClose={onClose}
+      footer={
+        <div className="flex gap-3">
+          <button onClick={onClose} className="flex-1 py-3 rounded-2xl bg-secondary border border-border text-sm font-medium">Cancel</button>
+          <button onClick={handleSettle} disabled={saving || preview.length === 0}
+            className="flex-1 py-3 rounded-2xl bg-[var(--brand)] text-white text-sm font-semibold disabled:opacity-60">
+            {saving ? "Settling…" : "Confirm Settlement"}
+          </button>
         </div>
+      }>
         <div className="bg-[var(--brand-light)] rounded-xl px-4 py-3">
           <p className="text-xs text-[var(--brand-dark)]">Total EMI due ({targetedLoans.length} targeted loans)</p>
           <p className="text-xl font-bold text-[var(--brand)]">{formatCurrency(totalEmi)}</p>
@@ -246,15 +310,7 @@ function EmiSettleModal({ lender, targetedLoans, ratePerMonth, userId, onSettled
           </div>
         )}
         {error && <p className="text-xs text-destructive">{error}</p>}
-        <div className="flex gap-3">
-          <button onClick={onClose} className="flex-1 py-3 rounded-2xl bg-secondary border border-border text-sm font-medium">Cancel</button>
-          <button onClick={handleSettle} disabled={saving || preview.length === 0}
-            className="flex-1 py-3 rounded-2xl bg-[var(--brand)] text-white text-sm font-semibold disabled:opacity-60">
-            {saving ? "Settling…" : "Confirm Settlement"}
-          </button>
-        </div>
-      </div>
-    </div>
+    </SheetModal>
   );
 }
 
@@ -291,12 +347,16 @@ function LumpSumModal({ loan, userId, onSettled, onClose }: {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-end justify-center">
-      <div className="bg-card w-full max-w-lg rounded-t-3xl p-5 pb-8 space-y-4" style={{paddingBottom: "max(2rem, env(safe-area-inset-bottom))"}}>
-        <div className="flex items-center justify-between">
-          <h2 className="text-base font-semibold text-foreground">Settle in Full</h2>
-          <button onClick={onClose}><X size={18} className="text-muted-foreground" /></button>
+    <SheetModal title={<>Settle in Full</>} onClose={onClose}
+      footer={
+        <div className="flex gap-3">
+          <button onClick={onClose} className="flex-1 py-3 rounded-2xl bg-secondary border border-border text-sm font-medium">Cancel</button>
+          <button onClick={handleSettle} disabled={saving}
+            className="flex-1 py-3 rounded-2xl bg-[var(--brand)] text-white text-sm font-semibold disabled:opacity-60">
+            {saving ? "Settling…" : `Pay ${formatCurrency(parseFloat(amount) || 0)}`}
+          </button>
         </div>
+      }>
         <div className="bg-[var(--brand-light)] rounded-xl px-4 py-3">
           <p className="text-xs text-[var(--brand-dark)]">{loan.loan_number} · Outstanding balance</p>
           <p className="text-xl font-bold text-[var(--brand)]">{formatCurrency(balance)}</p>
@@ -318,15 +378,7 @@ function LumpSumModal({ loan, userId, onSettled, onClose }: {
           <input value={notes} onChange={e => setNotes(e.target.value)} placeholder="UPI ref, bank transfer…" className={inputCls} />
         </div>
         {error && <p className="text-xs text-destructive">{error}</p>}
-        <div className="flex gap-3">
-          <button onClick={onClose} className="flex-1 py-3 rounded-2xl bg-secondary border border-border text-sm font-medium">Cancel</button>
-          <button onClick={handleSettle} disabled={saving}
-            className="flex-1 py-3 rounded-2xl bg-[var(--brand)] text-white text-sm font-semibold disabled:opacity-60">
-            {saving ? "Settling…" : `Pay ${formatCurrency(parseFloat(amount) || 0)}`}
-          </button>
-        </div>
-      </div>
-    </div>
+    </SheetModal>
   );
 }
 
